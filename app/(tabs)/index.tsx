@@ -1,4 +1,5 @@
 import * as Location from "expo-location";
+import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -21,6 +22,11 @@ import {
   formatWeekday,
   type PrayerTime,
 } from "@/lib/prayer-times";
+import {
+  DEFAULT_PRAYER_SETTINGS,
+  loadPrayerSettings,
+  type PrayerSettings,
+} from "@/lib/prayer-settings";
 
 type PermissionState = "checking" | "requesting" | "ready" | "denied" | "disabled" | "error";
 
@@ -43,10 +49,12 @@ function getRemainingSeconds(target: Date, now: Date) {
 }
 
 export default function HomeScreen() {
+  const router = useRouter();
   const [permissionState, setPermissionState] = useState<PermissionState>("checking");
   const [location, setLocation] = useState<DeviceLocation | null>(null);
   const [locationError, setLocationError] = useState("");
   const [now, setNow] = useState(() => new Date());
+  const [prayerSettings, setPrayerSettings] = useState<PrayerSettings>(DEFAULT_PRAYER_SETTINGS);
 
   const requestLocation = async () => {
     setPermissionState("requesting");
@@ -105,6 +113,10 @@ export default function HomeScreen() {
   }, []);
 
   useEffect(() => {
+    void loadPrayerSettings().then(setPrayerSettings);
+  }, []);
+
+  useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
@@ -140,8 +152,8 @@ export default function HomeScreen() {
 
   const prayers = useMemo<PrayerTime[]>(() => {
     if (!location) return [];
-    return calculatePrayerTimes(now, location.latitude, location.longitude, -now.getTimezoneOffset());
-  }, [location, now]);
+    return calculatePrayerTimes(now, location.latitude, location.longitude, -now.getTimezoneOffset(), prayerSettings);
+  }, [location, now, prayerSettings]);
 
   const nextPrayer = useMemo(() => {
     if (!location || prayers.length === 0) return null;
@@ -150,8 +162,8 @@ export default function HomeScreen() {
 
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    return calculatePrayerTimes(tomorrow, location.latitude, location.longitude, -now.getTimezoneOffset())[0];
-  }, [location, now, prayers]);
+    return calculatePrayerTimes(tomorrow, location.latitude, location.longitude, -now.getTimezoneOffset(), prayerSettings)[0];
+  }, [location, now, prayers, prayerSettings]);
 
   const countdown = nextPrayer ? getRemainingSeconds(nextPrayer.date, now) : 0;
   const currentPrayerIndex = prayers.reduce(
@@ -222,6 +234,12 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         bounces={false}
       >
+        <Pressable
+          onPress={() => router.push("/settings")}
+          style={({ pressed }) => [styles.settingsButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.settingsButtonText}>الإعدادات</Text>
+        </Pressable>
         <View style={styles.topRow}>
           <View style={styles.dateBlock}>
             <Text style={styles.weekday}>{formatWeekday(now)}</Text>
@@ -388,6 +406,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: Platform.OS === "android" ? 20 : 12,
     paddingBottom: 20,
+  },
+  settingsButton: {
+    alignSelf: "flex-end",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,250,244,0.18)",
+    backgroundColor: "rgba(255,250,244,0.06)",
+    marginBottom: 18,
+  },
+  settingsButtonText: {
+    color: "rgba(255,250,244,0.78)",
+    fontSize: 12,
+    fontWeight: "700",
   },
   topRow: {
     flexDirection: "row",

@@ -31,6 +31,23 @@ describe("prayer time calculation", () => {
       expect(prayers[index].date.getTime()).toBeGreaterThan(prayers[index - 1].date.getTime());
     }
   });
+
+  it("changes Fajr and Isha when the calculation method changes", () => {
+    const date = new Date(2026, 8, 24, 12, 0, 0);
+    const mwl = calculatePrayerTimes(date, 24.7136, 46.6753, 180, { calculationMethod: "mwl" });
+    const isna = calculatePrayerTimes(date, 24.7136, 46.6753, 180, { calculationMethod: "isna" });
+
+    expect(isna[0].date.getTime()).not.toBe(mwl[0].date.getTime());
+    expect(isna[4].date.getTime()).not.toBe(mwl[4].date.getTime());
+  });
+
+  it("moves Asr later for the Hanafi school", () => {
+    const date = new Date(2026, 8, 24, 12, 0, 0);
+    const shafii = calculatePrayerTimes(date, 24.7136, 46.6753, 180, { asrSchool: "shafii" });
+    const hanafi = calculatePrayerTimes(date, 24.7136, 46.6753, 180, { asrSchool: "hanafi" });
+
+    expect(hanafi[2].date.getTime()).toBeGreaterThan(shafii[2].date.getTime());
+  });
 });
 
 describe("display formatting", () => {

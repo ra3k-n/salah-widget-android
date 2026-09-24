@@ -6,6 +6,11 @@ export type PrayerTime = {
   date: Date;
 };
 
+export type PrayerCalculationSettings = {
+  calculationMethod?: "mwl" | "egyptian" | "ummAlQura" | "karachi" | "isna";
+  asrSchool?: "shafii" | "hanafi";
+};
+
 const DEG = Math.PI / 180;
 const RAD = 180 / Math.PI;
 
@@ -107,13 +112,23 @@ export function calculatePrayerTimes(
   latitude: number,
   longitude: number,
   timezoneOffsetMinutes: number,
+  settings: PrayerCalculationSettings = {},
 ): PrayerTime[] {
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
   const day = date.getDate();
   const timezone = timezoneOffsetMinutes / 60;
   const baseJulian = julian(year, month, day) - longitude / (15 * 24);
-  const sampleHours = { fajr: 5, sunrise: 6, dhuhr: 12, asr: 13, sunset: 18, isha: 18 };
+  const methodAngles = {
+    mwl: { fajr: 18, isha: 17 },
+    egyptian: { fajr: 19.5, isha: 17.5 },
+    ummAlQura: { fajr: 18.5, isha: 17 },
+    karachi: { fajr: 18, isha: 18 },
+    isna: { fajr: 15, isha: 15 },
+  } as const;
+  const angles = methodAngles[settings.calculationMethod ?? "mwl"];
+  const asrFactor = settings.asrSchool === "hanafi" ? 2 : 1;
+  const sampleDhuhrHour = 12;
   const baseDate = new Date(year, month - 1, day);
   const calculated: Record<PrayerKey, number> = {
     fajr: 0,
@@ -124,13 +139,13 @@ export function calculatePrayerTimes(
   };
 
   for (let iteration = 0; iteration < 2; iteration += 1) {
-    const sun = sunPosition(baseJulian + sampleHours.dhuhr / 24);
+    const sun = sunPosition(baseJulian + sampleDhuhrHour / 24);
     const midday = fixHour(12 - sun.equation);
-    const fajr = midday - hourAngle(-18, latitude, sun.declination);
+    const fajr = midday - hourAngle(-angles.fajr, latitude, sun.declination);
     const dhuhr = midday;
-    const asr = midday + hourAngle(asrElevation(latitude, sun.declination), latitude, sun.declination);
+    const asr = midday + hourAngle(asrElevation(latitude, sun.declination, asrFactor), latitude, sun.declination);
     const maghrib = midday + hourAngle(-0.833, latitude, sun.declination);
-    const isha = midday + hourAngle(-17, latitude, sun.declination);
+    const isha = midday + hourAngle(-angles.isha, latitude, sun.declination);
     const correction = timezone;
 
     calculated.fajr = fixHour(fajr + correction);
@@ -138,6 +153,9 @@ export function calculatePrayerTimes(
     calculated.asr = fixHour(asr + correction);
     calculated.maghrib = fixHour(maghrib + correction);
     calculated.isha = fixHour(isha + correction);
+    if (settings.calculationMethod === "ummAlQura") {
+      calculated.isha = fixHour(calculated.maghrib + 1.5);
+    }
   }
 
   return PRAYERS.map(({ key, name }) => ({
