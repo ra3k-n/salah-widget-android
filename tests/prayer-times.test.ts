@@ -48,6 +48,17 @@ describe("prayer time calculation", () => {
 
     expect(hanafi[2].date.getTime()).toBeGreaterThan(shafii[2].date.getTime());
   });
+
+  it("applies a separate manual minute adjustment to a prayer", () => {
+    const date = new Date(2026, 8, 24, 12, 0, 0);
+    const base = calculatePrayerTimes(date, 24.7136, 46.6753, 180);
+    const adjusted = calculatePrayerTimes(date, 24.7136, 46.6753, 180, {
+      adjustments: { maghrib: 7 },
+    });
+
+    expect(adjusted[3].date.getTime() - base[3].date.getTime()).toBe(7 * 60 * 1000);
+    expect(adjusted[0].date.getTime()).toBe(base[0].date.getTime());
+  });
 });
 
 describe("display formatting", () => {

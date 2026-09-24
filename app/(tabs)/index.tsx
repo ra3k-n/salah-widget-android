@@ -1,7 +1,7 @@
 import * as Location from "expo-location";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -14,6 +14,7 @@ import {
 } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import {
   calculatePrayerTimes,
   formatCountdown,
@@ -27,6 +28,8 @@ import {
   loadPrayerSettings,
   type PrayerSettings,
 } from "@/lib/prayer-settings";
+import { getHiOSTheme } from "@/lib/hios-theme";
+import { copy } from "@/lib/i18n";
 
 type PermissionState = "checking" | "requesting" | "ready" | "denied" | "disabled" | "error";
 
@@ -50,11 +53,14 @@ function getRemainingSeconds(target: Date, now: Date) {
 
 export default function HomeScreen() {
   const router = useRouter();
+  const colorScheme = useColorScheme();
+  const theme = getHiOSTheme(colorScheme);
   const [permissionState, setPermissionState] = useState<PermissionState>("checking");
   const [location, setLocation] = useState<DeviceLocation | null>(null);
   const [locationError, setLocationError] = useState("");
   const [now, setNow] = useState(() => new Date());
   const [prayerSettings, setPrayerSettings] = useState<PrayerSettings>(DEFAULT_PRAYER_SETTINGS);
+  const t = copy[prayerSettings.language];
 
   const requestLocation = async () => {
     setPermissionState("requesting");
@@ -64,14 +70,14 @@ export default function HomeScreen() {
       const servicesEnabled = await Location.hasServicesEnabledAsync();
       if (!servicesEnabled) {
         setPermissionState("disabled");
-        setLocationError("فعّل خدمة الموقع من إعدادات الهاتف ثم حاول مرة أخرى.");
+        setLocationError(t.locationService);
         return;
       }
 
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status !== Location.PermissionStatus.GRANTED) {
         setPermissionState("denied");
-        setLocationError("نحتاج الموقع الدقيق لحساب المواقيت حسب مكانك.");
+        setLocationError(t.locationNeeded);
         return;
       }
 
@@ -104,7 +110,7 @@ export default function HomeScreen() {
       setPermissionState("ready");
     } catch {
       setPermissionState("error");
-      setLocationError("تعذر قراءة الموقع الآن. تحقق من أذونات الهاتف ثم أعد المحاولة.");
+      setLocationError(t.locationError);
     }
   };
 
@@ -112,14 +118,16 @@ export default function HomeScreen() {
     void requestLocation();
   }, []);
 
-  useEffect(() => {
-    void loadPrayerSettings().then(setPrayerSettings);
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      void loadPrayerSettings().then(setPrayerSettings);
+    }, []),
+  );
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
+    const timer = setInterval(() => setNow(new Date()), prayerSettings.batterySaver ? 30_000 : 1_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [prayerSettings.batterySaver]);
 
   useEffect(() => {
     if (!location || permissionState !== "ready") return;
@@ -128,8 +136,8 @@ export default function HomeScreen() {
     void Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.High,
-        timeInterval: 60_000,
-        distanceInterval: 100,
+        timeInterval: prayerSettings.batterySaver ? 180_000 : 60_000,
+        distanceInterval: prayerSettings.batterySaver ? 500 : 100,
       },
       (updated) => {
         setLocation((current) =>
@@ -148,7 +156,7 @@ export default function HomeScreen() {
     });
 
     return () => subscription?.remove();
-  }, [location?.latitude, location?.longitude, permissionState]);
+  }, [location?.latitude, location?.longitude, permissionState, prayerSettings.batterySaver]);
 
   const prayers = useMemo<PrayerTime[]>(() => {
     if (!location) return [];
@@ -173,30 +181,30 @@ export default function HomeScreen() {
 
   if (permissionState !== "ready" || !location) {
     return (
-      <ScreenContainer edges={["top", "bottom", "left", "right"]} containerClassName="bg-[#211c23]">
-        <StatusBar style="light" />
-        <View style={styles.permissionScreen}>
-          <View style={styles.permissionGlowOne} />
-          <View style={styles.permissionGlowTwo} />
+      <ScreenContainer edges={["top", "bottom", "left", "right"]} containerClassName={theme.isDark ? "bg-[#211c23]" : "bg-[#f4eee8]"}>
+        <StatusBar style={theme.isDark ? "light" : "dark"} />
+        <View style={[styles.permissionScreen, { backgroundColor: theme.background }]}>
+          <View style={[styles.permissionGlowOne, { backgroundColor: theme.glowPrimary }]} />
+          <View style={[styles.permissionGlowTwo, { backgroundColor: theme.glowSecondary }]} />
           <View style={styles.permissionContent}>
-            <View style={styles.locationMark}>
-              <Text style={styles.locationMarkText}>⌖</Text>
+            <View style={[styles.locationMark, { borderColor: theme.border, backgroundColor: theme.accentSoft }]}>
+              <Text style={[styles.locationMarkText, { color: theme.accent }]}>⌖</Text>
             </View>
-            <Text style={styles.permissionEyebrow}>مواقيت الصلاة</Text>
-            <Text style={styles.permissionTitle}>نحدد المواقيت حسب موقعك</Text>
-            <Text style={styles.permissionBody}>
-              نستخدم موقعك الدقيق مرة واحدة لحساب أوقات الصلاة المحلية، ثم نحدّث العدّاد كل ثانية.
+            <Text style={[styles.permissionEyebrow, { color: theme.accent }]}>{t.prayerTimes}</Text>
+            <Text style={[styles.permissionTitle, { color: theme.foreground }]}>{t.locationTitle}</Text>
+            <Text style={[styles.permissionBody, { color: theme.muted }]}>
+              {t.locationBody}
             </Text>
             {permissionState === "checking" || permissionState === "requesting" ? (
               <View style={styles.loadingBox}>
-                <ActivityIndicator color="#f5c59a" />
-                <Text style={styles.loadingText}>
-                  {permissionState === "checking" ? "جاري التحقق من الإذن" : "جاري طلب الموقع الدقيق"}
+                <ActivityIndicator color={theme.accent} />
+                <Text style={[styles.loadingText, { color: theme.foreground }]}>
+                  {permissionState === "checking" ? t.checking : t.requesting}
                 </Text>
               </View>
             ) : (
               <>
-                <Text style={styles.permissionError}>{locationError}</Text>
+                <Text style={[styles.permissionError, { color: theme.accent }]}>{locationError}</Text>
                 <Pressable
                   onPress={() => {
                     if (permissionState === "denied") {
@@ -207,13 +215,13 @@ export default function HomeScreen() {
                   }}
                   style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
                 >
-                  <Text style={styles.primaryButtonText}>
-                    {permissionState === "denied" ? "فتح إعدادات الموقع" : "المحاولة مرة أخرى"}
+                  <Text style={[styles.primaryButtonText, { color: theme.buttonText }]}>
+                    {permissionState === "denied" ? t.openLocationSettings : t.tryAgain}
                   </Text>
                 </Pressable>
               </>
             )}
-            <Text style={styles.privacyNote}>لا نعرض مواقيت تجريبية؛ الموقع مطلوب قبل الدخول.</Text>
+            <Text style={[styles.privacyNote, { color: theme.faint }]}>{t.noMock}</Text>
           </View>
         </View>
       </ScreenContainer>
@@ -221,13 +229,13 @@ export default function HomeScreen() {
   }
 
   return (
-    <ScreenContainer edges={["top", "bottom", "left", "right"]} containerClassName="bg-[#332a31]">
-      <StatusBar style="light" />
+    <ScreenContainer edges={["top", "bottom", "left", "right"]} containerClassName={theme.isDark ? "bg-[#332a31]" : "bg-[#f4eee8]"}>
+      <StatusBar style={theme.isDark ? "light" : "dark"} />
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-        <View style={styles.wallpaperGlowLeft} />
-        <View style={styles.wallpaperGlowCenter} />
+        <View style={[styles.wallpaperGlowLeft, { backgroundColor: theme.glowPrimary }]} />
+        <View style={[styles.wallpaperGlowCenter, { backgroundColor: theme.glowSecondary }]} />
         <View style={styles.wallpaperGlowRight} />
-        <View style={styles.wallpaperShade} />
+        <View style={[styles.wallpaperShade, { backgroundColor: theme.isDark ? "rgba(28, 24, 29, 0.34)" : "rgba(255,255,255,0.24)" }]} />
       </View>
       <ScrollView
         contentContainerStyle={styles.content}
@@ -238,22 +246,22 @@ export default function HomeScreen() {
           onPress={() => router.push("/settings")}
           style={({ pressed }) => [styles.settingsButton, pressed && styles.pressed]}
         >
-          <Text style={styles.settingsButtonText}>الإعدادات</Text>
+          <Text style={[styles.settingsButtonText, { color: theme.muted }]}>{t.settings}</Text>
         </Pressable>
         <View style={styles.topRow}>
           <View style={styles.dateBlock}>
-            <Text style={styles.weekday}>{formatWeekday(now)}</Text>
-            <Text style={styles.hijri}>{formatHijri(now)}</Text>
+            <Text style={[styles.weekday, { color: theme.foreground }]}>{formatWeekday(now)}</Text>
+            <Text style={[styles.hijri, { color: theme.muted }]}>{formatHijri(now)}</Text>
           </View>
           <View style={styles.nextBlock}>
-            <Text style={styles.nextEyebrow}>باقي على {nextPrayer?.name ?? "الصلاة"}</Text>
-            <Text style={styles.countdown}>{formatCountdown(countdown)}</Text>
+            <Text style={[styles.nextEyebrow, { color: theme.foreground }]}>{t.nextPrayer} {nextPrayer?.name ?? t.prayerTimes}</Text>
+            <Text style={[styles.countdown, { color: theme.foreground }]}>{formatCountdown(countdown)}</Text>
           </View>
         </View>
 
         <View style={styles.locationRow}>
-          <Text style={styles.locationText}>{location.label}</Text>
-          <Text style={styles.locationAccuracy}>{formatAccuracy(location.accuracy)}</Text>
+          <Text style={[styles.locationText, { color: theme.muted }]}>{location.label}</Text>
+          <Text style={[styles.locationAccuracy, { color: theme.faint }]}>{formatAccuracy(location.accuracy)}</Text>
         </View>
 
         <View style={styles.divider} />
@@ -265,24 +273,24 @@ export default function HomeScreen() {
             return (
               <View key={prayer.key} style={[styles.prayerItem, isNext && styles.nextPrayerItem]}>
                 <View style={[styles.prayerDot, isNext && styles.nextPrayerDot, isCurrent && styles.currentPrayerDot]} />
-                <Text style={[styles.prayerName, isNext && styles.nextPrayerText]}>{prayer.name}</Text>
-                <Text style={[styles.prayerTime, isNext && styles.nextPrayerText]}>{formatPrayerTime(prayer.date)}</Text>
+                <Text style={[styles.prayerName, { color: theme.foreground }, isNext && styles.nextPrayerText, isNext && { color: theme.accent }]}>{prayer.name}</Text>
+                <Text style={[styles.prayerTime, { color: theme.foreground }, isNext && styles.nextPrayerText, isNext && { color: theme.accent }]}>{formatPrayerTime(prayer.date)}</Text>
               </View>
             );
           })}
         </View>
 
         <View style={styles.footerRow}>
-          <Text style={styles.footerText}>المواقيت حسب الموقع الدقيق</Text>
+          <Text style={[styles.footerText, { color: theme.muted }]}>{t.exactLocation}</Text>
           <Text style={styles.footerSeparator}>•</Text>
-          <Text style={styles.footerText}>تتجدد تلقائيًا</Text>
+          <Text style={[styles.footerText, { color: theme.muted }]}>{t.autoRefresh}</Text>
         </View>
 
         <Pressable
           onPress={requestLocation}
           style={({ pressed }) => [styles.refreshButton, pressed && styles.pressed]}
         >
-          <Text style={styles.refreshButtonText}>تحديث الموقع</Text>
+          <Text style={[styles.refreshButtonText, { color: theme.muted }]}>{t.refreshLocation}</Text>
         </Pressable>
       </ScrollView>
     </ScreenContainer>

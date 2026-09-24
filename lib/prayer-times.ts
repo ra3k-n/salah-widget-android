@@ -9,6 +9,7 @@ export type PrayerTime = {
 export type PrayerCalculationSettings = {
   calculationMethod?: "mwl" | "egyptian" | "ummAlQura" | "karachi" | "isna";
   asrSchool?: "shafii" | "hanafi";
+  adjustments?: Partial<Record<PrayerKey, number>>;
 };
 
 const DEG = Math.PI / 180;
@@ -161,7 +162,7 @@ export function calculatePrayerTimes(
   return PRAYERS.map(({ key, name }) => ({
     key,
     name,
-    date: decimalToDate(baseDate, calculated[key]),
+    date: decimalToDate(baseDate, fixHour(calculated[key] + (settings.adjustments?.[key] ?? 0) / 60)),
   }));
 }
 
